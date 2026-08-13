@@ -1,0 +1,14 @@
+{
+  "welcomeFile": "/zpluginPutBatchWCML/index.html",
+  "authenticationMethod": "none",
+  "logout": {
+    "logoutEndpoint": "/do/logout"
+  },
+  "routes": [
+    {
+      "source": "^/zpluginPutBatchWCML/(.*)$",
+      "target": "$1",
+      "localDir": "webapp"
+    }
+  ]
+}

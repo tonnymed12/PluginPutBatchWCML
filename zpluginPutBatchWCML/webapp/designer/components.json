@@ -1,0 +1,15 @@
+{
+	"components": [
+		{
+			"id": "zpluginPutBatchWCML",
+			"type": "VIEW_PLUGIN",
+			"allowMultipleInstances": false,
+			"name": "serviacero.custom.plugins.zpluginPutBatchWCML.zpluginPutBatchWCML",
+			"propertyEditor": "serviacero.custom.plugins.zpluginPutBatchWCML.zpluginPutBatchWCML.builder.PropertyEditor",
+			"i18n": "serviacero.custom.plugins.zpluginPutBatchWCML.zpluginPutBatchWCML.i18n.i18n",
+            "productionProcessEnabled": true,
+           "productionProcessTitle": "zpluginPutBatchWCML",
+			"supportedPodTypes": ["WORK_CENTER","OPERATION","ORDER","OTHER"]
+		}   
+	]
+}
