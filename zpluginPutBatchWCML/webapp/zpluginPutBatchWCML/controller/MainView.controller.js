@@ -573,7 +573,7 @@ sap.ui.define([
         },
         _formatLoteQty: function (vCantidad) {
             var n = parseFloat(vCantidad);
-            return isNaN(n) ? "" : n.toFixed(2);
+            return isNaN(n) ? "" : n.toFixed(3);
         },
         /**
          * Devuelve los POD params usando caché si el POD perdió contexto por navegación.
@@ -1003,7 +1003,7 @@ sap.ui.define([
 
                 // Reconstruir value preservando MATERIAL, LOTE, CANTIDAD_STOCK y SECUENCIA;
                 // solo se actualiza la posición de CANTIDAD_ASIGNADA
-                var sCantidadFormatted = nNewCantidad.toFixed(2);
+                var sCantidadFormatted = nNewCantidad.toFixed(3);
                 var aPartes = aSlots[iIndex].value.split('!');
                 var sMaterial = aPartes[0];
                 var sLote = aPartes[1];
@@ -1413,7 +1413,7 @@ sap.ui.define([
                 return nTotal + (isNaN(nQty) ? 0 : nQty);
             }, 0);
 
-            oOrderSummaryModel.setProperty("/cantidadEscaneada", Number(nScannedQty.toFixed(2)));
+            oOrderSummaryModel.setProperty("/cantidadEscaneada", Number(nScannedQty.toFixed(3)));
         },
         onPressOpenFragmentList: function (oEvent) {
             var oView = this.getView();
