@@ -46,12 +46,16 @@ height="100%">
                     <Input id="orderCantidadNecesaria" value="{orderSummary>/cantidadNecesaria}" enabled="false" width="100%"/>
                 </VBox>
                 <VBox width="15%" class="sapUiSmallMarginEnd">
-                    <Label text="{i18n>unidadMedida}"/>
-                    <Input id="orderUnidadMedida" value="{orderSummary>/unidadMedida}" enabled="false" width="100%"/>
-                </VBox>
-                <VBox width="15%">
                     <Label text="{i18n>cantidadEscaneada}"/>
                     <Input id="orderCantidadEscaneada" value="{orderSummary>/cantidadEscaneada}" enabled="false" width="100%"/>
+                </VBox>
+                <VBox width="15%" class="sapUiSmallMarginEnd">
+                    <Label text="{i18n>cantidadConsumida}"/>
+                    <Input id="orderCantidadConsumida" value="{orderSummary>/cantidadConsumida}" enabled="false" width="100%"/>
+                </VBox>
+                <VBox width="10%" >
+                    <Label text="{i18n>unidadMedida}"/>
+                    <Input id="orderUnidadMedida" value="{orderSummary>/unidadMedida}" enabled="false" width="100%"/>
                 </VBox>
 
             </HBox>

@@ -83,7 +83,8 @@ sap.ui.define([],
       getLotesMaterialStock: "/pe/api/v1/process/processDefinitions/start?key=REG_2aeb576a-f473-463a-923c-ea69224dcb6a&async=false",
       /** PRODUCTION PROCESS API CONSUMPTION TYPE : POST  putBatchSlotOperationActivity*/
       putBatchSlotOperationActivity: "/pe/api/v1/process/processDefinitions/start?key=REG_186243f5-3d68-45df-b30f-515331cb0fab&async=false",
-
+      /** PRODUCTION PROCESS API CONSUMPTION TYPE : POST  getStockLote*/
+      getStockLote: "/pe/api/v1/process/processDefinitions/start?key=REG_e8559195-6ca8-4ed9-96c9-f007409f6244&async=false",
 
 
     }

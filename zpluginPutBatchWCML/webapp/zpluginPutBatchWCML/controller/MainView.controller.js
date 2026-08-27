@@ -34,8 +34,9 @@ sap.ui.define([
                 material: "",
                 descripcion: "",
                 cantidadNecesaria: 0,
-                unidadMedida: "",
-                cantidadEscaneada: 0
+                cantidadEscaneada: 0,
+                cantidadConsumida: 0,
+                unidadMedida: ""
             });
             this.getView().setModel(oOrderSummaryModel, "orderSummary");
 
@@ -177,7 +178,7 @@ sap.ui.define([
 
         },
         /**
-         * Refresca las cantidades (loteQty) de todos los slots con valor consultando getReservas,
+         * Refresca las cantidades (loteQty) de todos los slots con valor consultando getStockLote,
          * y resetea CANTIDAD_ASIGNADA a la nueva cantidad de stock disponible (igual que EF01/EF02),
          * persistiendo el cambio en los custom values.
          */
@@ -191,7 +192,7 @@ sap.ui.define([
             if (!oPODParams) { sap.m.MessageToast.show(oBundle.getText("errorRefrescarSlots")); return; }
             var mandante = this.getConfiguration().mandante;
             var oSapApi = this.getPublicApiRestDataSourceUri();
-            var urlLote = oSapApi + this.ApiPaths.getReservas;
+            var urlLote = oSapApi + this.ApiPaths.getStockLote;
 
             // Filtrar solo slots con valor
             var aSlotsConValor = aItems.filter(function (slot) {
@@ -215,7 +216,6 @@ sap.ui.define([
                     "inPlanta": oPODParams.PLANT_ID,
                     "inLote": sLote,
                     "inOrden": oPODParams.ORDER_ID,
-                    "inSapClient": mandante,
                     "inMaterial": sMaterial,
                     "inPuesto": oPODParams.WORK_CENTER
                 };
@@ -403,7 +403,7 @@ sap.ui.define([
             return sCurrentStatus;
         },
         /**
-        * Llamada al Pp(getReservas) para obtener los lotes en Reserva y hacer validacion de material
+        * Llamada al Pp(getStockLote) para obtener los lotes en Reserva y hacer validacion de material
         * @param {string} sLote - Valor del lote "material!lote" 
         * @param {string} sMaterial - Valor del material "material!lote" 
         * @param {string} bAcActivityValidado - Valor de actividad
@@ -494,12 +494,11 @@ sap.ui.define([
                     }
 
                     //Validacion de lotes  
-                    var urlLote = oSapApi + this.ApiPaths.getReservas;
+                    var urlLote = oSapApi + this.ApiPaths.getStockLote;
                     var inParamsLote = {
                         "inPlanta": oPODParams.PLANT_ID,
                         "inLote": loteEscaneado,
                         "inOrden": oPODParams.ORDER_ID,
-                        "inSapClient": mandante,
                         "inMaterial": materialEscaneado,
                         "inPuesto": oPODParams.WORK_CENTER
                     };
@@ -1381,7 +1380,26 @@ sap.ui.define([
                             const oHeader = Array.isArray(headerData) ? headerData[0] : headerData;
                             const sDescripcion = (oHeader && oHeader.description) || "";
                             oOrderSummaryModel.setProperty("/descripcion", sDescripcion);
-
+                            // Encadenar consulta de cantidad consumida (GoodsIssue)
+                            return this.getGoodsIssueSummary({
+                                plant: oPODParams.PLANT_ID,
+                                order: oPODParams.ORDER_ID,
+                                sfc: oPODParams.SFC,
+                                operationActivity: oPODParams.OPERATION_ACTIVITY,
+                                stepId: oPODParams.STEP_ID
+                            }, oSapApi).catch(function () { return null; }); // Fallo silencioso
+                        }.bind(this))
+                        .then(function (oGoodsData) {
+                            // Mapear cantidadConsumida por material desde lineItems
+                            var aLineItems = (oGoodsData && Array.isArray(oGoodsData.lineItems)) ? oGoodsData.lineItems : [];
+                            var oConsumoMap = {};
+                            aLineItems.forEach(function (oItem) {
+                                var sMat = (oItem.materialId && oItem.materialId.material) || "";
+                                var nConsumo = (oItem.consumedQuantity && oItem.consumedQuantity.value) || 0;
+                                if (sMat) { oConsumoMap[sMat.toUpperCase()] = nConsumo; }
+                            });
+                            oOrderSummaryModel.setProperty("/cantidadConsumida",
+                                oConsumoMap[(oOrderSummaryModel.getProperty("/material") || "").toUpperCase()] || 0);
                         }.bind(this))
                         .catch(function (error) {
                             console.error("[OrderSummary Test] Error:", error);
@@ -1570,15 +1588,20 @@ sap.ui.define([
                 oPopover.setBusy(false);
             }
         },
-        getGoodsIssuesSummary: function (sParams, oSapApi) {
-            return new Promise((resolve, reject) => {
+        /**
+         * Obtiene el resumen de Goods Issue para calcular la cantidad consumida de la orden.
+         * @param {object} sParams - { plant, order, operationActivity }
+         * @param {string} oSapApi - Base URL de la API pública
+         * @returns {Promise}
+         */
+        getGoodsIssueSummary: function (sParams, oSapApi) {
+            return new Promise(function (resolve, reject) {
                 this.ajaxGetRequest(oSapApi + this.ApiPaths.GOODSISSUES_SUMMARY, sParams, function (oRes) {
                     resolve(oRes);
-                }.bind(this),
-                    function (oRes) {
-                        reject(oRes);
-                    }.bind(this));
-            });
+                }.bind(this), function (oRes) {
+                    reject(oRes);
+                }.bind(this));
+            }.bind(this));
         },
         getGoodsIssueSummaryMaterial: function (sParams, oSapApi) {
             return new Promise(function (resolve, reject) {
@@ -1631,9 +1654,9 @@ sap.ui.define([
                     this._oOperationActivityData = oData;
                     resolve({ customValues: oData.customValues || [] });
                 }.bind(this),
-                function () {
-                    resolve("Error");
-                }.bind(this));
+                    function () {
+                        resolve("Error");
+                    }.bind(this));
             }.bind(this));
         },
         /**
@@ -1656,9 +1679,9 @@ sap.ui.define([
                 this.ajaxPostRequest(oSapApi + this.ApiPaths.putBatchSlotOperationActivity, oPayload, function (oRes) {
                     resolve(oRes);
                 }.bind(this),
-                function (oRes) {
-                    reject(oRes);
-                }.bind(this));
+                    function (oRes) {
+                        reject(oRes);
+                    }.bind(this));
             }.bind(this));
         },
     });
