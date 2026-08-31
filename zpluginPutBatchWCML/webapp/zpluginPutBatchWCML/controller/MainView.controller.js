@@ -241,13 +241,51 @@ sap.ui.define([
             }.bind(this));
 
             Promise.all(aPromises).then(function (aResults) {
+                // Detectar slots sin stock disponible (ej: lote ya consumido en otra orden) y eliminarlos.
+                var aValoresVigentes = [];
+                aItems.forEach(function (slot) {
+                    var nQty = parseFloat(slot.cantidadAsignada);
+                    if (slot.value && slot.value.trim() !== "" && !isNaN(nQty) && nQty > 0) {
+                        aValoresVigentes.push({
+                            value: slot.value,
+                            loteQty: slot.loteQty,
+                            loteUom: slot.loteUom,
+                            cantidadAsignada: slot.cantidadAsignada
+                        });
+                    }
+                });
+                var iSinStock = aItems.length - aValoresVigentes.length;
+
+                // Reacomodar los valores vigentes en los slots existentes (shift) y vaciar el resto
+                aItems.forEach(function (slot, i) {
+                    var oVigente = aValoresVigentes[i];
+                    slot.value = oVigente ? oVigente.value : "";
+                    slot.loteQty = oVigente ? oVigente.loteQty : "";
+                    slot.loteUom = oVigente ? oVigente.loteUom : "";
+                    slot.cantidadAsignada = oVigente ? oVigente.cantidadAsignada : "";
+                });
+
+                // Renumerar secuencia preservando MATERIAL, LOTE, CANTIDAD_STOCK y CANTIDAD_ASIGNADA
+                var iNuevaSecuencia = 0;
+                aItems.forEach(function (slot) {
+                    var sValorActual = (slot.value || "").toString().trim();
+                    if (!sValorActual) { return; }
+                    var aPartes = sValorActual.split('!');
+                    if (aPartes.length >= 2) {
+                        iNuevaSecuencia++;
+                        var sCantidadStock = aPartes.length >= 5 ? aPartes[2] : (slot.loteQty || "");
+                        var sCantidadAsignada = aPartes.length >= 5 ? aPartes[4] : (slot.cantidadAsignada || sCantidadStock || "");
+                        slot.value = aPartes[0] + "!" + aPartes[1] + "!" + sCantidadStock + "!" + iNuevaSecuencia + "!" + sCantidadAsignada;
+                        slot.cantidadAsignada = sCantidadAsignada;
+                    }
+                });
+                this.iSecuenciaCounter = iNuevaSecuencia;
+
                 oModel.refresh(true);
                 this._updateOrderSummaryScannedQty(aItems);
 
-                // Persistir las cantidades actualizadas en los custom values del puesto
-                var aEdited = aItems
-                    .filter(function (s) { return s.value && s.value.trim() !== ""; })
-                    .map(function (s) { return { attribute: s.attribute, value: s.value }; });
+                // Persistir las cantidades actualizadas; los slots sin stock quedan vacíos y también se envían
+                var aEdited = aItems.map(function (s) { return { attribute: s.attribute, value: s.value || "" }; });
 
                 var sParamsWC = { plant: oPODParams.PLANT_ID, workCenter: oPODParams.WORK_CENTER };
                 this.getWorkCenterCustomValues(sParamsWC, oSapApi).then(function (oOriginalRes) {
@@ -270,7 +308,9 @@ sap.ui.define([
                 }.bind(this)).then(function () {
                     oView.byId("idPluginPanel").setBusy(false);
                     var iFailed = aResults.filter(function (r) { return !r.ok; }).length;
-                    if (iFailed > 0) {
+                    if (iSinStock > 0) {
+                        sap.m.MessageToast.show(oBundle.getText("lotesEliminadosSinStock", [iSinStock]));
+                    } else if (iFailed > 0) {
                         sap.m.MessageToast.show(oBundle.getText("refreshParcial", [iFailed]));
                     } else {
                         sap.m.MessageToast.show(oBundle.getText("refreshExitoso"));
@@ -409,7 +449,7 @@ sap.ui.define([
         * @param {string} bAcActivityValidado - Valor de actividad
         * @returns {string} - Solo el material
         */
-        _validarMaterialYLote: function (sLote, sMaterial, bAcActivityValidado) {
+        _validarMaterialYLote: function (sLote, sMaterial, bAcActivityValidado, bCubiertaConfirmada) {
             const oView = this.getView();
             const oBundle = this.getView().getModel("i18n").getResourceBundle();
             const mandante = this.getConfiguration().mandante;
@@ -424,6 +464,33 @@ sap.ui.define([
             const puesto = oPODParams.WORK_CENTER;
             const sAcActivity = this.sAcActivity;  //customValue AC_ACTIVITY 
             const bEsPuestoCritico = ["TA01", "TA02", "SL02"].includes(puesto);
+
+            // Validar que la cantidad requerida por la orden no esté ya cubierta
+            // (consumido + montado) antes de permitir escanear un lote adicional.
+            if (!bCubiertaConfirmada) {
+                const oCubierta = this._getCantidadCubiertaInfo();
+                if (oCubierta.bCubierta) {
+                    sap.m.MessageBox.warning(
+                        oBundle.getText("cantidadOrdenCubiertaConfirmar", [oCubierta.nNecesaria, oCubierta.nTotal]),
+                        {
+                            actions: [MessageBox.Action.YES, MessageBox.Action.NO],
+                            emphasizedAction: MessageBox.Action.NO,
+                            onClose: function (sAction) {
+                                if (sAction === MessageBox.Action.YES) {
+                                    this._validarMaterialYLote(loteEscaneado, materialEscaneado, bAcActivityValidado, true);
+                                    return;
+                                }
+                                if (!this._slotContext) {
+                                    oInput.setValue("");
+                                    oInput.focus();
+                                }
+                                this._slotContext = null;
+                            }.bind(this)
+                        }
+                    );
+                    return;
+                }
+            }
 
             // Validación de estatus de operación (en tiempo real desde POD)
             // var sCurrentStatus = this._getCurrentOperationStatus();
@@ -573,6 +640,32 @@ sap.ui.define([
         _formatLoteQty: function (vCantidad) {
             var n = parseFloat(vCantidad);
             return isNaN(n) ? "" : n.toFixed(3);
+        },
+        /**
+         * Calcula si la cantidad requerida por la orden ya está cubierta sumando lo consumido
+         * (Goods Issue) más lo actualmente montado en la tabla (columna Assigned Qty).
+         * @returns {{nNecesaria:number, nConsumida:number, nAsignada:number, nTotal:number, bCubierta:boolean}}
+         */
+        _getCantidadCubiertaInfo: function () {
+            var oOrderSummaryModel = this.getView().getModel("orderSummary");
+            var nNecesaria = parseFloat(oOrderSummaryModel && oOrderSummaryModel.getProperty("/cantidadNecesaria")) || 0;
+            var nConsumida = parseFloat(oOrderSummaryModel && oOrderSummaryModel.getProperty("/cantidadConsumida")) || 0;
+            var oTable = this.byId("idSlotTable");
+            var aItems = (oTable && oTable.getModel()) ? (oTable.getModel().getProperty("/ITEMS") || []) : [];
+            var nAsignada = aItems.reduce(function (nSum, oItem) {
+                if (!oItem || !oItem.value) { return nSum; }
+                var nQty = parseFloat(oItem.cantidadAsignada);
+                if (isNaN(nQty)) { nQty = parseFloat(oItem.loteQty); }
+                return nSum + (isNaN(nQty) ? 0 : nQty);
+            }, 0);
+            var nTotal = nConsumida + nAsignada;
+            return {
+                nNecesaria: nNecesaria,
+                nConsumida: nConsumida,
+                nAsignada: nAsignada,
+                nTotal: nTotal,
+                bCubierta: nNecesaria > 0 && nTotal >= nNecesaria
+            };
         },
         /**
          * Devuelve los POD params usando caché si el POD perdió contexto por navegación.
@@ -772,7 +865,11 @@ sap.ui.define([
                     inMaterialLote: sMaterialLote
                 }, oSapApi).then(function () {
                     sap.m.MessageToast.show(oBundle.getText("slotActualizado"));
-                }).catch(function (oErr) {
+                    var oCubierta = this._getCantidadCubiertaInfo();
+                    if (oCubierta.bCubierta) {
+                        sap.m.MessageBox.warning(oBundle.getText("cantidadOrdenCubiertaAviso", [oCubierta.nTotal, oCubierta.nNecesaria]));
+                    }
+                }.bind(this)).catch(function (oErr) {
                     var sErrMsg = (oErr && oErr.responseJSON && (oErr.responseJSON.message || oErr.responseJSON.displayMessage)) || oBundle.getText("errorActualizar");
                     console.error("[WCML] Error al guardar slot:", oErr);
                     sap.m.MessageToast.show(sErrMsg);
@@ -1209,6 +1306,10 @@ sap.ui.define([
                     inMaterialLote: sMaterialLote
                 }, oSapApi).then(function () {
                     sap.m.MessageToast.show(oBundle.getText("slotActualizado"));
+                    var oCubierta = this._getCantidadCubiertaInfo();
+                    if (oCubierta.bCubierta) {
+                        sap.m.MessageBox.warning(oBundle.getText("cantidadOrdenCubiertaAviso", [oCubierta.nTotal, oCubierta.nNecesaria]));
+                    }
                     this._slotContext = null;
                 }.bind(this)).catch(function (oErr) {
                     var sErrMsg = (oErr && oErr.responseJSON && (oErr.responseJSON.message || oErr.responseJSON.displayMessage)) || oBundle.getText("errorActualizar");
@@ -1427,7 +1528,9 @@ sap.ui.define([
             }
 
             const nScannedQty = aSourceItems.reduce(function (nTotal, oItem) {
-                const nQty = parseFloat(oItem && oItem.loteQty);
+                if (!oItem || !oItem.value) { return nTotal; }
+                let nQty = parseFloat(oItem.cantidadAsignada);
+                if (isNaN(nQty)) { nQty = parseFloat(oItem.loteQty); }
                 return nTotal + (isNaN(nQty) ? 0 : nQty);
             }, 0);
 
